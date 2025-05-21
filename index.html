@@ -2,198 +2,262 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>تسجيل الدخول / إنشاء حساب</title>
+  <title>File Manager - Admin</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
   <style>
     body { font-family: Arial, sans-serif; margin: 2em; }
-    .box { max-width: 350px; margin: 2em auto; border: 1px solid #ccc; border-radius: 8px; padding: 2em; }
-    input, button { width: 100%; margin: 0.5em 0; padding: 0.5em; }
-    .msg { color: green; }
-    .err { color: red; }
-    .switch { color: #1976d2; cursor: pointer; text-align: center; margin-top: 1em; }
-    .switch:hover { text-decoration: underline; }
+    ul { list-style: none; padding-left: 1em; }
+    .folder { font-weight: bold; cursor: pointer; color: #1976d2; }
+    .folder:hover { text-decoration: underline; }
+    .file { margin-left: 1em; }
+    .actions { margin-left: 1em; }
+    button { margin-left: 0.2em; }
+    .breadcrumbs { margin-bottom: 1em; }
+    .breadcrumbs span { cursor: pointer; color: #1976d2; }
+    .breadcrumbs span:hover { text-decoration: underline; }
+    .breadcrumbs .sep { color: #888; }
   </style>
 </head>
 <body>
-  <div class="box">
-    <h2 id="form-title">تسجيل الدخول</h2>
-    <form id="auth-form">
-      <input type="email" id="email" placeholder="البريد الإلكتروني" required />
-      <input type="password" id="password" placeholder="كلمة المرور" required />
-      <div id="otp-section" style="display:none;">
-        <input type="text" id="otp" placeholder="رمز التحقق (OTP)" maxlength="6" />
-        <button type="button" id="verify-otp-btn">تأكيد البريد</button>
-      </div>
-      <button type="submit" id="main-btn">دخول</button>
-    </form>
-    <div id="msg" class="msg"></div>
-    <div id="err" class="err"></div>
-    <div class="switch" id="switch-to-signup">ليس لديك حساب؟ إنشاء حساب جديد</div>
-    <div class="switch" id="switch-to-login" style="display:none;">لديك حساب؟ تسجيل الدخول</div>
-    <div class="switch" id="forgot-pass">نسيت كلمة المرور؟</div>
-    <div class="switch" id="back-to-login" style="display:none;">رجوع لتسجيل الدخول</div>
+  <h1>File Manager (Admin)</h1>
+  <div style="margin-bottom:1em;">
+    <a href="auth.html" style="color:#1976d2;">تسجيل الدخول / إنشاء حساب</a>
   </div>
+  <div class="breadcrumbs" id="breadcrumbs"></div>
+  <div id="file-tree"></div>
+  <div id="error-message" style="color:red"></div>
+  <hr>
+  <button onclick="createFolder(currentFolder)">+ مجلد جديد هنا</button>
+  <button onclick="createFile(currentFolder)">+ ملف جديد هنا</button>
   <script>
+    // ...Supabase config...
     const supabaseUrl = 'https://ixotpdhfnnnpeikgmwrm.supabase.co';
     const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml4b3RwZGhmbm5ucGVpa2dtd3JtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4NDc1OTIsImV4cCI6MjA2MzQyMzU5Mn0.S3W7B1EcNCTlIfWL82aboEFkMG3WkJK1T0Cy8HC0hIs';
     const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 
-    let mode = 'login'; // or 'signup' or 'forgot'
-    let pendingEmail = '';
-    let pendingPassword = '';
+    let filesCache = [];
+    let currentFolder = null; // null = root
 
-    const form = document.getElementById('auth-form');
-    const email = document.getElementById('email');
-    const password = document.getElementById('password');
-    const otpSection = document.getElementById('otp-section');
-    const otpInput = document.getElementById('otp');
-    const verifyOtpBtn = document.getElementById('verify-otp-btn');
-    const msg = document.getElementById('msg');
-    const err = document.getElementById('err');
-    const mainBtn = document.getElementById('main-btn');
-    const formTitle = document.getElementById('form-title');
-    const switchToSignup = document.getElementById('switch-to-signup');
-    const switchToLogin = document.getElementById('switch-to-login');
-    const forgotPass = document.getElementById('forgot-pass');
-    const backToLogin = document.getElementById('back-to-login');
+    function getFolderPath(folderId) {
+      const path = [];
+      let fid = folderId;
+      while (fid) {
+        const folder = filesCache.find(f => f.id === fid);
+        if (!folder) break;
+        path.unshift({ id: folder.id, name: folder.name });
+        fid = folder.parent_id;
+      }
+      return path;
+    }
 
-    function setMode(newMode) {
-      mode = newMode;
-      msg.textContent = '';
-      err.textContent = '';
-      otpSection.style.display = 'none';
-      otpInput.value = '';
-      pendingEmail = '';
-      pendingPassword = '';
-      if (mode === 'login') {
-        formTitle.textContent = 'تسجيل الدخول';
-        mainBtn.textContent = 'دخول';
-        password.style.display = '';
-        mainBtn.style.display = '';
-        switchToSignup.style.display = '';
-        switchToLogin.style.display = 'none';
-        forgotPass.style.display = '';
-        backToLogin.style.display = 'none';
-      } else if (mode === 'signup') {
-        formTitle.textContent = 'إنشاء حساب جديد';
-        mainBtn.textContent = 'إنشاء حساب';
-        password.style.display = '';
-        mainBtn.style.display = '';
-        switchToSignup.style.display = 'none';
-        switchToLogin.style.display = '';
-        forgotPass.style.display = '';
-        backToLogin.style.display = 'none';
-      } else if (mode === 'forgot') {
-        formTitle.textContent = 'استعادة كلمة المرور';
-        password.style.display = 'none';
-        mainBtn.textContent = 'إرسال رابط الاستعادة';
-        mainBtn.style.display = '';
-        switchToSignup.style.display = 'none';
-        switchToLogin.style.display = 'none';
-        forgotPass.style.display = 'none';
-        backToLogin.style.display = '';
+    function renderBreadcrumbs() {
+      const path = getFolderPath(currentFolder);
+      let html = `<span onclick="navigateTo(null)">الرئيسية</span>`;
+      path.forEach((item, idx) => {
+        html += `<span class="sep"> / </span><span onclick="navigateTo('${item.id}')">${item.name}</span>`;
+      });
+      document.getElementById('breadcrumbs').innerHTML = html;
+    }
+
+    function buildTree(files, parentId) {
+      const nodes = files.filter(f => f.parent_id === parentId);
+      if (!nodes.length) return '<i>لا يوجد محتوى</i>';
+      let html = '<ul>';
+      for (const node of nodes) {
+        if (node.type === 'folder') {
+          html += `<li>
+            <span class="folder" onclick="navigateTo('${node.id}')">📁 ${node.name}</span>
+            <span class="actions">
+              <button onclick="event.stopPropagation();createFolder('${node.id}')">+مجلد</button>
+              <button onclick="event.stopPropagation();createFile('${node.id}')">+ملف</button>
+              <button onclick="event.stopPropagation();renameNode('${node.id}')">تعديل الاسم</button>
+              <button onclick="event.stopPropagation();deleteNode('${node.id}')">حذف</button>
+              <button onclick="event.stopPropagation();moveNode('${node.id}')">نقل</button>
+              <button onclick="event.stopPropagation();embedYoutube('${node.id}')">تضمين فيديو</button>
+            </span>
+            ${node.youtube_url ? `<div style="margin:0.5em 0 0 2em;font-size:0.95em;color:#1976d2;">🎬 <a href="${node.youtube_url}" target="_blank">رابط فيديو يوتيوب</a></div>` : ''}
+          </li>`;
+        } else {
+          html += `<li class="file">
+            📄 ${node.name}
+            <span class="actions">
+              <button onclick="renameNode('${node.id}')">تعديل الاسم</button>
+              <button onclick="deleteNode('${node.id}')">حذف</button>
+              <button onclick="moveNode('${node.id}')">نقل</button>
+            </span>
+          </li>`;
+        }
+      }
+      html += '</ul>';
+      return html;
+    }
+
+    function navigateTo(folderId) {
+      currentFolder = folderId;
+      renderTree();
+    }
+
+    async function fetchFiles() {
+      try {
+        const { data, error } = await supabase
+          .from('files')
+          .select('*');
+        if (error) {
+          document.getElementById('error-message').innerText = 'خطأ في جلب البيانات: ' + error.message;
+          return [];
+        }
+        document.getElementById('error-message').innerText = '';
+        filesCache = data;
+        return data;
+      } catch (e) {
+        document.getElementById('error-message').innerText = 'فشل الاتصال بـ Supabase: ' + e.message;
+        return [];
       }
     }
 
-    switchToSignup.onclick = () => setMode('signup');
-    switchToLogin.onclick = () => setMode('login');
-    forgotPass.onclick = () => setMode('forgot');
-    backToLogin.onclick = () => setMode('login');
+    function extractYoutubeId(url) {
+      // Supports: https://youtu.be/ID, https://www.youtube.com/watch?v=ID, etc.
+      if (!url) return null;
+      let match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/))([A-Za-z0-9_-]{11})/);
+      if (match) return match[1];
+      // fallback for v= param
+      let v = (url.split('v=')[1] || '').substring(0, 11);
+      return v || null;
+    }
 
-    form.onsubmit = async (e) => {
-      e.preventDefault();
-      msg.textContent = '';
-      err.textContent = '';
-      if (mode === 'login') {
-        mainBtn.disabled = true;
-        const { error, data } = await supabase.auth.signInWithPassword({
-          email: email.value,
-          password: password.value
-        });
-        mainBtn.disabled = false;
-        if (error) {
-          err.textContent = error.message;
-        } else if (data.user && !data.user.email_confirmed_at) {
-          err.textContent = 'يجب تأكيد البريد الإلكتروني أولاً.';
-        } else {
-          msg.textContent = 'تم تسجيل الدخول بنجاح!';
-          setTimeout(() => { window.location.href = 'admin.html'; }, 1000);
-        }
-      } else if (mode === 'signup') {
-        mainBtn.disabled = true;
-        const { error } = await supabase.auth.signUp({
-          email: email.value,
-          password: password.value,
-          options: {
-            emailRedirectTo: null // لا نريد إعادة توجيه عبر الرابط
+    async function renderTree() {
+      filesCache = await fetchFiles();
+      renderBreadcrumbs();
+      const files = filesCache;
+      let content = '';
+      // Show YouTube video if current folder has one
+      if (currentFolder) {
+        const folder = filesCache.find(f => f.id === currentFolder && f.type === 'folder');
+        if (folder && folder.youtube_url) {
+          const vid = extractYoutubeId(folder.youtube_url);
+          if (vid) {
+            content += `<div style="margin-bottom:1em;">
+              <iframe width="420" height="236" src="https://www.youtube.com/embed/${vid}" frameborder="0" allowfullscreen></iframe>
+            </div>`;
           }
-        });
-        mainBtn.disabled = false;
-        if (error) {
-          err.textContent = error.message;
-        } else {
-          msg.textContent = 'تم إرسال رمز تحقق (OTP) إلى بريدك الإلكتروني. أدخل الرمز أدناه لتفعيل الحساب.';
-          otpSection.style.display = '';
-          pendingEmail = email.value;
-          pendingPassword = password.value;
-        }
-      } else if (mode === 'forgot') {
-        mainBtn.disabled = true;
-        const { error } = await supabase.auth.resetPasswordForEmail(email.value, {
-          redirectTo: window.location.origin + window.location.pathname
-        });
-        mainBtn.disabled = false;
-        if (error) {
-          err.textContent = error.message;
-        } else {
-          msg.textContent = 'تم إرسال رابط استعادة كلمة المرور إلى بريدك الإلكتروني.';
         }
       }
-    };
+      content += buildTree(files, currentFolder);
+      document.getElementById('file-tree').innerHTML = content;
+      if (!files.length) {
+        document.getElementById('file-tree').innerHTML = '<i>لا توجد بيانات أو هناك مشكلة في الاتصال</i>';
+      }
+    }
 
-    // تفعيل البريد عبر OTP
-    verifyOtpBtn.onclick = async () => {
-      err.textContent = '';
-      msg.textContent = '';
-      if (!pendingEmail || !pendingPassword || !otpInput.value) {
-        err.textContent = 'يرجى إدخال البريد وكلمة المرور ورمز التحقق.';
+    async function createFolder(parentId) {
+      const name = prompt('Folder name?');
+      if (!name) return;
+      const youtube_url = prompt('YouTube video link (اختياري):');
+      const insertObj = { name, type: 'folder', parent_id: parentId };
+      if (youtube_url) insertObj.youtube_url = youtube_url;
+      const { error } = await supabase.from('files').insert([insertObj]);
+      if (error) {
+        document.getElementById('error-message').innerText = 'خطأ في إنشاء المجلد: ' + error.message;
+      } else {
+        renderTree();
+      }
+    }
+
+    async function createFile(parentId) {
+      const name = prompt('File name?');
+      if (!name) return;
+      const { error } = await supabase.from('files').insert([{ name, type: 'file', parent_id: parentId }]);
+      if (error) {
+        document.getElementById('error-message').innerText = 'خطأ في إنشاء الملف: ' + error.message;
+      } else {
+        renderTree();
+      }
+    }
+
+    async function renameNode(id) {
+      const node = filesCache.find(f => f.id === id);
+      if (!node) return;
+      const name = prompt('New name?', node.name);
+      if (!name) return;
+      let updateObj = { name };
+      if (node.type === 'folder') {
+        // allow editing youtube_url on rename for folders
+        const youtube_url = prompt('YouTube video link (اختياري):', node.youtube_url || '');
+        updateObj.youtube_url = youtube_url || null;
+      }
+      const { error } = await supabase.from('files').update(updateObj).eq('id', id);
+      if (error) {
+        document.getElementById('error-message').innerText = 'خطأ في إعادة التسمية: ' + error.message;
+      } else {
+        renderTree();
+      }
+    }
+
+    async function deleteNode(id) {
+      if (!confirm('Delete this item and all its children?')) return;
+      const toDelete = [id];
+      function collectChildren(pid) {
+        filesCache.filter(f => f.parent_id === pid).forEach(child => {
+          toDelete.push(child.id);
+          if (child.type === 'folder') collectChildren(child.id);
+        });
+      }
+      collectChildren(id);
+      const { error } = await supabase.from('files').delete().in('id', toDelete);
+      if (error) {
+        document.getElementById('error-message').innerText = 'خطأ في الحذف: ' + error.message;
+      } else {
+        renderTree();
+      }
+    }
+
+    async function moveNode(id) {
+      const node = filesCache.find(f => f.id === id);
+      if (!node) return;
+      const dest = prompt('Enter destination folder id (empty for root):');
+      if (dest === null) return;
+      if (dest && !filesCache.find(f => f.id === dest && f.type === 'folder')) {
+        alert('Invalid folder id');
         return;
       }
-      verifyOtpBtn.disabled = true;
-      // Supabase: verify email OTP
-      const { data, error } = await supabase.auth.verifyOtp({
-        email: pendingEmail,
-        token: otpInput.value,
-        type: 'email'
-      });
-      verifyOtpBtn.disabled = false;
+      const { error } = await supabase.from('files').update({ parent_id: dest || null }).eq('id', id);
       if (error) {
-        err.textContent = error.message;
+        document.getElementById('error-message').innerText = 'خطأ في النقل: ' + error.message;
       } else {
-        msg.textContent = 'تم تفعيل البريد بنجاح! سيتم تسجيل الدخول...';
-        // تسجيل الدخول تلقائياً بعد التفعيل
-        setTimeout(async () => {
-          const { error: loginErr, data: loginData } = await supabase.auth.signInWithPassword({
-            email: pendingEmail,
-            password: pendingPassword
-          });
-          if (loginErr) {
-            err.textContent = loginErr.message;
-          } else {
-            msg.textContent = 'تم تسجيل الدخول بنجاح!';
-            setTimeout(() => { window.location.href = 'admin.html'; }, 1000);
-          }
-        }, 500);
+        renderTree();
       }
-    };
-
-    // If user is redirected here after password reset, show message
-    if (window.location.hash.includes('type=recovery')) {
-      setMode('forgot');
-      msg.textContent = 'يرجى إدخال كلمة مرور جديدة من رابط البريد الإلكتروني.';
     }
 
-    setMode('login');
+    async function embedYoutube(id) {
+      const node = filesCache.find(f => f.id === id);
+      if (!node || node.type !== 'folder') return;
+      const youtube_url = prompt('YouTube video link:', node.youtube_url || '');
+      if (youtube_url === null) return;
+      const { error } = await supabase.from('files').update({ youtube_url: youtube_url || null }).eq('id', id);
+      if (error) {
+        document.getElementById('error-message').innerText = 'خطأ في حفظ رابط الفيديو: ' + error.message;
+      } else {
+        renderTree();
+      }
+    }
+
+    window.navigateTo = navigateTo;
+    window.createFolder = createFolder;
+    window.createFile = createFile;
+    window.renameNode = renameNode;
+    window.deleteNode = deleteNode;
+    window.moveNode = moveNode;
+    window.embedYoutube = embedYoutube;
+
+    renderTree();
+
+    // Real-time updates
+    supabase
+      .channel('public:files')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'files' }, payload => {
+        renderTree();
+      })
+      .subscribe();
   </script>
 </body>
 </html>
