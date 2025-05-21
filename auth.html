@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>تسجيل الدخول / إنشاء حساب</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2em; }
+    .box { max-width: 350px; margin: 2em auto; border: 1px solid #ccc; border-radius: 8px; padding: 2em; }
+    input, button { width: 100%; margin: 0.5em 0; padding: 0.5em; }
+    .msg { color: green; }
+    .err { color: red; }
+    .switch { color: #1976d2; cursor: pointer; text-align: center; margin-top: 1em; }
+    .switch:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h2 id="form-title">تسجيل الدخول</h2>
+    <form id="auth-form">
+      <input type="email" id="email" placeholder="البريد الإلكتروني" required />
+      <input type="password" id="password" placeholder="كلمة المرور" required />
+      <div id="otp-section" style="display:none;">
+        <input type="text" id="otp" placeholder="رمز التحقق (OTP)" maxlength="6" />
+        <button type="button" id="verify-otp-btn">تأكيد البريد</button>
+      </div>
+      <button type="submit" id="main-btn">دخول</button>
+    </form>
+    <div id="msg" class="msg"></div>
+    <div id="err" class="err"></div>
+    <div class="switch" id="switch-to-signup">ليس لديك حساب؟ إنشاء حساب جديد</div>
+    <div class="switch" id="switch-to-login" style="display:none;">لديك حساب؟ تسجيل الدخول</div>
+    <div class="switch" id="forgot-pass">نسيت كلمة المرور؟</div>
+    <div class="switch" id="back-to-login" style="display:none;">رجوع لتسجيل الدخول</div>
+  </div>
+  <script>
+    const supabaseUrl = 'https://ixotpdhfnnnpeikgmwrm.supabase.co';
+    const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml4b3RwZGhmbm5ucGVpa2dtd3JtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4NDc1OTIsImV4cCI6MjA2MzQyMzU5Mn0.S3W7B1EcNCTlIfWL82aboEFkMG3WkJK1T0Cy8HC0hIs';
+    const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+    let mode = 'login'; // or 'signup' or 'forgot'
+    let pendingEmail = '';
+    let pendingPassword = '';
+
+    const form = document.getElementById('auth-form');
+    const email = document.getElementById('email');
+    const password = document.getElementById('password');
+    const otpSection = document.getElementById('otp-section');
+    const otpInput = document.getElementById('otp');
+    const verifyOtpBtn = document.getElementById('verify-otp-btn');
+    const msg = document.getElementById('msg');
+    const err = document.getElementById('err');
+    const mainBtn = document.getElementById('main-btn');
+    const formTitle = document.getElementById('form-title');
+    const switchToSignup = document.getElementById('switch-to-signup');
+    const switchToLogin = document.getElementById('switch-to-login');
+    const forgotPass = document.getElementById('forgot-pass');
+    const backToLogin = document.getElementById('back-to-login');
+
+    function setMode(newMode) {
+      mode = newMode;
+      msg.textContent = '';
+      err.textContent = '';
+      otpSection.style.display = 'none';
+      otpInput.value = '';
+      pendingEmail = '';
+      pendingPassword = '';
+      if (mode === 'login') {
+        formTitle.textContent = 'تسجيل الدخول';
+        mainBtn.textContent = 'دخول';
+        password.style.display = '';
+        mainBtn.style.display = '';
+        switchToSignup.style.display = '';
+        switchToLogin.style.display = 'none';
+        forgotPass.style.display = '';
+        backToLogin.style.display = 'none';
+      } else if (mode === 'signup') {
+        formTitle.textContent = 'إنشاء حساب جديد';
+        mainBtn.textContent = 'إنشاء حساب';
+        password.style.display = '';
+        mainBtn.style.display = '';
+        switchToSignup.style.display = 'none';
+        switchToLogin.style.display = '';
+        forgotPass.style.display = '';
+        backToLogin.style.display = 'none';
+      } else if (mode === 'forgot') {
+        formTitle.textContent = 'استعادة كلمة المرور';
+        password.style.display = 'none';
+        mainBtn.textContent = 'إرسال رابط الاستعادة';
+        mainBtn.style.display = '';
+        switchToSignup.style.display = 'none';
+        switchToLogin.style.display = 'none';
+        forgotPass.style.display = 'none';
+        backToLogin.style.display = '';
+      }
+    }
+
+    switchToSignup.onclick = () => setMode('signup');
+    switchToLogin.onclick = () => setMode('login');
+    forgotPass.onclick = () => setMode('forgot');
+    backToLogin.onclick = () => setMode('login');
+
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      msg.textContent = '';
+      err.textContent = '';
+      if (mode === 'login') {
+        mainBtn.disabled = true;
+        const { error, data } = await supabase.auth.signInWithPassword({
+          email: email.value,
+          password: password.value
+        });
+        mainBtn.disabled = false;
+        if (error) {
+          err.textContent = error.message;
+        } else if (data.user && !data.user.email_confirmed_at) {
+          err.textContent = 'يجب تأكيد البريد الإلكتروني أولاً.';
+        } else {
+          msg.textContent = 'تم تسجيل الدخول بنجاح!';
+          setTimeout(() => { window.location.href = 'admin.html'; }, 1000);
+        }
+      } else if (mode === 'signup') {
+        mainBtn.disabled = true;
+        const { error } = await supabase.auth.signUp({
+          email: email.value,
+          password: password.value,
+          options: {
+            emailRedirectTo: null // لا نريد إعادة توجيه عبر الرابط
+          }
+        });
+        mainBtn.disabled = false;
+        if (error) {
+          err.textContent = error.message;
+        } else {
+          msg.textContent = 'تم إرسال رمز تحقق (OTP) إلى بريدك الإلكتروني. أدخل الرمز أدناه لتفعيل الحساب.';
+          otpSection.style.display = '';
+          pendingEmail = email.value;
+          pendingPassword = password.value;
+        }
+      } else if (mode === 'forgot') {
+        mainBtn.disabled = true;
+        const { error } = await supabase.auth.resetPasswordForEmail(email.value, {
+          redirectTo: window.location.origin + window.location.pathname
+        });
+        mainBtn.disabled = false;
+        if (error) {
+          err.textContent = error.message;
+        } else {
+          msg.textContent = 'تم إرسال رابط استعادة كلمة المرور إلى بريدك الإلكتروني.';
+        }
+      }
+    };
+
+    // تفعيل البريد عبر OTP
+    verifyOtpBtn.onclick = async () => {
+      err.textContent = '';
+      msg.textContent = '';
+      if (!pendingEmail || !pendingPassword || !otpInput.value) {
+        err.textContent = 'يرجى إدخال البريد وكلمة المرور ورمز التحقق.';
+        return;
+      }
+      verifyOtpBtn.disabled = true;
+      // Supabase: verify email OTP
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: pendingEmail,
+        token: otpInput.value,
+        type: 'email'
+      });
+      verifyOtpBtn.disabled = false;
+      if (error) {
+        err.textContent = error.message;
+      } else {
+        msg.textContent = 'تم تفعيل البريد بنجاح! سيتم تسجيل الدخول...';
+        // تسجيل الدخول تلقائياً بعد التفعيل
+        setTimeout(async () => {
+          const { error: loginErr, data: loginData } = await supabase.auth.signInWithPassword({
+            email: pendingEmail,
+            password: pendingPassword
+          });
+          if (loginErr) {
+            err.textContent = loginErr.message;
+          } else {
+            msg.textContent = 'تم تسجيل الدخول بنجاح!';
+            setTimeout(() => { window.location.href = 'admin.html'; }, 1000);
+          }
+        }, 500);
+      }
+    };
+
+    // If user is redirected here after password reset, show message
+    if (window.location.hash.includes('type=recovery')) {
+      setMode('forgot');
+      msg.textContent = 'يرجى إدخال كلمة مرور جديدة من رابط البريد الإلكتروني.';
+    }
+
+    setMode('login');
+  </script>
+</body>
+</html>
